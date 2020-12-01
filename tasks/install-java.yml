@@ -1,0 +1,154 @@
+#multi-java
+
+---
+
+-
+  name: "Show Ansible Role variables"
+  debug: 
+    msg: 
+      - "mj_java_package_item.mj_java_download_url={{mj_java_package_item.mj_java_download_url|default('<UNDEFINED>')}}"
+      - "mj_java_package_item.mj_nexus_java_version={{mj_java_package_item.mj_nexus_java_version|default('<UNDEFINED>')}}"
+
+- 
+  name: Create temp Java directory
+  file: path="{{mj_download_dir}}/java" state=directory
+
+- 
+  name: Get Java download URL for Nexus # download method 1
+  set_fact: mj_java_download_url="{{mj_java_download_nexus_base_url}}/{{mj_java_package_item.mj_nexus_java_version}}/java-{{mj_java_package_item.mj_nexus_java_version}}.{{mj_java_package_item.mj_nexus_java_package_file_ext|default(mj_nexus_java_package_file_ext_default)}}"
+  when: 
+    - mj_java_package_item.mj_java_download_url is undefined
+
+- 
+  name: Get Java download URL custom # download method 2
+  set_fact: mj_java_download_url="{{mj_java_package_item.mj_java_download_url}}"
+  when: 
+    - mj_java_package_item.mj_java_download_url is defined
+
+- 
+  name: Show Java download URL
+  debug: 
+    msg: "{{mj_java_download_url}}"
+
+- 
+  name: Download Java package
+  get_url: 
+    url: "{{mj_java_download_url}}"
+    dest: "{{mj_download_dir}}"
+
+- 
+  name: Get Java package file path
+  set_fact: java_package_file_path="{{mj_download_dir}}/{{mj_java_download_url | basename}}"
+
+- 
+  name: Show Java package file path
+  debug: 
+    msg: "{{java_package_file_path}}"
+
+- 
+  name: Set Java directory
+  set_fact: java_dir="{{mj_absolute_java_base_dir}}/{{mj_java_download_url | basename}}"
+
+- 
+  name: Show Java directory
+  debug: 
+    msg: "{{java_dir}}"
+
+- 
+  name: "Clean Java directory"
+  become: yes
+  file:
+    path: "{{java_dir}}"
+    state: absent
+  when: 
+    - mj_java_package_item.mj_clean_java_dir is defined and mj_java_package_item.mj_clean_java_dir == true or (mj_java_package_item.mj_clean_java_dir is defined and mj_clean_java_dir_default == true)
+
+- 
+  name: Create Java directory
+  file: 
+    path: "{{java_dir}}"
+    state: directory
+
+- 
+  name: Set Java directory symlink path with automatic name # symlink name generation method 1
+  set_fact: java_dir_symlink="{{java_dir}}-symlink"
+  when: 
+    - mj_java_package_item.mj_java_dir_symlink_name is undefined
+
+- 
+  name: Set Java directory symlink path with manual name # symlink name generation method 2
+  set_fact: java_dir_symlink="{{mj_absolute_java_base_dir}}/{{mj_java_dir_symlink_name}}"
+  when: 
+    - mj_java_package_item.mj_java_dir_symlink_name is defined
+
+- 
+  name: Show Java directory symlink path
+  debug: 
+    msg: "{{java_dir_symlink}}"
+
+- 
+  name: Create Java directory symlink (for easier update)
+  file: 
+    state: link 
+    src: "{{java_dir}}"
+    dest: "{{java_dir_symlink}}"
+
+- 
+  name: Extract Java package
+  unarchive: 
+    remote_src: yes # necesario ya que por default el modulo 'unarchive' busca los archivo en la computadora que ejecuta el script de Ansible
+    src: "{{java_package_file_path}}"
+    dest: "{{java_dir}}"
+    extra_opts: [--strip-components=1] # esto es para extraer el paquete sin 1er directorio raiz (el 1er dir de los paquetes Java suele tener un nombre impredecible diferente al nombre dle archivo)
+
+- 
+  name: Remove from alternatives the old installed Java with this path
+  become: true
+  command: "update-alternatives --remove java {{java_dir_symlink}}/jre/bin/java"
+  ignore_errors: true # si no hay ninguna version de java instalada devuelve error pero no pasa nada
+  when: 
+    - mj_java_package_item.mj_clean_java_alternative is defined and mj_java_package_item.mj_clean_java_alternative == true or (mj_java_package_item.mj_clean_java_alternative is undefined and mj_clean_java_alternative_default == true) # default
+
+- 
+  name: Add to alternatives the new installed Java
+  become: true
+  alternatives:
+    name: java
+    link: /usr/bin/java
+    path: "{{java_dir_symlink}}/jre/bin/java"
+    priority: "{{mj_alternatives_decreasing_start_priority - mj_java_package_index}}"
+
+-
+  name: Java installation check
+  block:
+    - 
+      command: "{{java_dir_symlink}}/jre/bin/java -version"
+      register: check_java_installation_result
+    -
+      debug:
+        msg: "Se instalaron correctamente los archivos de Java {{mj_java_package_item.mj_nexus_java_version}}."
+  rescue:
+    - 
+      debug:
+        msg: "Error. Fallo algo al intentar instalar Java {{mj_java_package_item.mj_nexus_java_version}}. Revise la configuracion del role, los directorios en la instancia, y el link o servidor de descarga, y vuelva a intentarlo."
+
+-
+  name: Java alternative configuration check
+  block:
+    - 
+      command: "update-alternatives --list java"
+      register: check_java_alternative_configuration_result
+    -
+      debug:
+        msg: "Se configuro correctamente Java {{mj_java_package_item.mj_nexus_java_version}} como una alternative usable." 
+      when: java_dir_symlink~'/jre/bin/java' in check_java_alternative_configuration_result.stdout
+    -
+      debug:
+        msg: "Error. Fallo algo al intentar configurar Java {{mj_java_package_item.mj_nexus_java_version}} como un alternative usable. Revise la configuracion del role, los directorios en la instancia, y el link o servidor de descarga, y vuelva a intentarlo."
+      when: java_dir_symlink~'/jre/bin/java' not in check_java_alternative_configuration_result.stdout
+  rescue:
+    - 
+      debug:
+        msg: "Error. Fallo algo al intentar configurar Java {{mj_java_package_item.mj_nexus_java_version}} como un alternative usable. Revise la configuracion del role, los directorios en la instancia, y el link o servidor de descarga, y vuelva a intentarlo."
+
+#NOTA: todos los operadores de Ansible como "is", "not", "in", "or", "and" hay que ponerlos siempre en minuscula o Ansible mostrara un error muy poco descriptivo y costara darse cuenta que era eso.

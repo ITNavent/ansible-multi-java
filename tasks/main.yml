@@ -1,0 +1,171 @@
+#multi-java
+
+---
+
+- 
+  name: Install the package "wget"
+  apt:
+    name: wget
+    state: present
+
+- set_fact: mj_is_java_installed=false
+- set_fact: mj_install_java=false
+
+- 
+  block:
+    - 
+      name: Get current Java version
+      shell: "java -version 2>&1 | grep version | awk '{print $3}' | sed 's/\"//g'"
+      ignore_errors: true # si no se pudo instalar ninguna version de Java esto dara error
+      register: mj_current_java_version_before_result
+
+    - name: Check if Java is  installed and if the specified version is different from the current installed version
+      set_fact: 
+        mj_is_java_installed: true
+        mj_current_java_version_before: "{{mj_current_java_version_before_result.stdout}}"
+      when: 
+        - mj_current_java_version_before_result is defined and mj_current_java_version_before_result.stdout != ""
+
+    - 
+      name: Check if Java is not installed and if the specified version is already isntalled
+      set_fact: 
+        mj_is_java_installed: false
+      when: 
+        - mj_current_java_version_before_result is undefined or (mj_current_java_version_before_result is defined and mj_current_java_version_before_result.stdout == "")
+
+    - 
+      name: Show current Java version
+      debug: msg="{{mj_current_java_version_before | default('<UNDEFINED>')}}"
+    - 
+      debug: msg="No se detecto ningun version de Java instalada en este sistema."
+      when: 
+        - mj_is_java_installed == false
+
+-
+  block:
+    - 
+      name: Set if Java will be installed
+      set_fact: mj_install_java=true
+      when: # instalamos los pakcages solo si la versiond de Java que quedara activa es diferente a la que ya esta activa antes de empezar la instalacion
+        - mj_is_java_installed == false or (mj_is_java_installed == true and mj_current_java_version_before is version(mj_java_packages[0].mj_nexus_java_version,'<>') )
+    - 
+      name: Java will be installed
+      debug: 
+        msg: 
+          - "Se determinó que se instalara Java, debido a que no esta instalada o la version instalada es diferente a la que se quiere instalar."
+      when: mj_install_java == true
+    - 
+      name: Java won't be installed
+      debug: 
+        msg:
+          - "Se determinó que NO se instalara Java, debido a que la version instalada actualmente es la misma que la que se quiere instalar."
+      when: mj_install_java == false
+    - 
+      name: Evaluated Java versions
+      debug: 
+        msg: 
+          - "Current Java version -> {{mj_current_java_version_before | default('<UNDEFINED>')}}"
+          - "New Java version -> {{mj_java_packages[0].mj_nexus_java_version | default('<UNDEFINED>')}}"
+    -
+      name: Check if forced Java instalation es activated
+      set_fact: mj_install_java=true
+      when: mj_force_java_installation == true
+    -
+      debug: msg="INSTALACION FORZOZA ACTIVADA. ¡Se ignoraran los criterios anteriores!"
+      when: mj_force_java_installation == true
+
+-
+  block:
+    - 
+      name: Get username
+      set_fact: username="{{ansible_env.SUDO_USER}}"
+    - 
+      name: Show username
+      debug: msg="{{username | default('<UNDEFINED>')}}" 
+  rescue:
+    -
+      name: ERROR
+      debug: msg="ERROR al intentar obtener el nombre de usuario actual en el sistema operativo."
+
+-
+  block:
+    - 
+      name: Get home directory
+      become_user: "{{username}}"
+      remote_user: "{{username}}"
+      become_method: sudo
+      become_flags: '-E' # esto sirve para que use las env var del usuario real, no de root.
+      set_fact: home_dir="{{ansible_env.PWD}}" # sino se podria usar $(eval echo ~"$SUDO_USER")
+      #  set_fact: home_dir="{{ lookup('env','HOME') }}" # no sirve $HOME porque te devuelve la home de root si el "Gatering Facts" se hizo con el become activado
+    - 
+      name: Show home directory
+      debug: msg="{{home_dir | default('<UNDEFINED>')}}"
+    - 
+      name: Set Java absolute base directory
+      set_fact: mj_absolute_java_base_dir="{{home_dir}}/{{mj_relative_java_base_dir}}"
+    - 
+      name: Show Java absolute base directory
+      debug: msg="{{mj_absolute_java_base_dir | default('<UNDEFINED>')}}"
+  rescue:
+    -
+      name: ERROR
+      debug: msg="Error al intentar determinar le directorio base donde se instalaran los paquetes de Java."
+
+- # NOTA: este sirve para cuando instalaciones de Java previas que se queiren desactivar
+  name: Reset Java alternatives
+  become: true
+  command: "update-alternatives --remove-all java"
+  ignore_errors: true # si no hay ninguna version de java instalada devuelve error pero no pasa nada
+  when: 
+    - mj_reset_all_java_alternatives is defined and mj_reset_all_java_alternatives == true
+    - mj_install_java == true
+
+#iteration-start
+# NOTA: actualmente la unica forma en Ansible de iterar sobre varias task es agrupar las task en un archivo yml separado y aplicarle un task include con "with_item".
+- 
+  name: Install each especified Java package...
+  include_tasks: "install-java.yml"
+  with_items: "{{mj_java_packages}}"
+  loop_control:
+    loop_var: "mj_java_package_item"
+    index_var: "mj_java_package_index"
+  when: 
+    - mj_java_packages is defined
+    - mj_install_java == true
+#iteration-end
+
+- 
+  block:
+    -
+      name: Get current installed Java alternatives 
+      command: "update-alternatives --list java"
+      register: java_alternatives_list_result
+      ignore_errors: true # si no se pudo instalar ninguna version de Java esto dara error
+    - 
+      name: Show current installed Java alternatives 
+      debug: msg="{{ java_alternatives_list_result.stdout.split('\n') }}" 
+      ignore_errors: true # si no se pudo instalar ninguna version de Java esto estara vacio
+      when:
+        - java_alternatives_list_result is defined
+        - java_alternatives_list_result.stdout is defined and java_alternatives_list_result.stdout != ""
+  rescue:
+    - 
+      name: ERROR
+      debug: msg="ERROR. No se pudieron obtener la informacion sobre el estado final de las alternatives de Java."
+
+- 
+  block:
+    - 
+      name: Get current Java version
+      shell: "java -version 2>&1 | grep version | awk '{print $3}' | sed 's/\"//g'"
+      ignore_errors: true # si no se pudo instalar ninguna version de Java esto dara error
+      register: mj_current_java_version_result
+    - 
+      name: Show current Java version
+      debug: msg="{{mj_current_java_version_result.stdout}}"
+  rescue:
+    - 
+      name: ERROR
+      debug: msg="ERROR. Algo falló en la instalación de los paquetes Java. Ninguno quedó configurada ninguna JVM por default. Revise la configuracion del role y vuelva a intentarlo."
+
+#NOTA: todos los operadores de Ansible como "is", "not", "in", "or", "and" hay que ponerlos siempre en minuscula o Ansible mostrara un error muy poco descriptivo y costara darse cuenta que era eso.
