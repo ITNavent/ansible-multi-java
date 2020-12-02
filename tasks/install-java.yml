@@ -154,3 +154,4 @@
       debug: msg="Error. Fallo algo al intentar configurar Java {{mj_java_package_item.mj_java_version}} como un alternative usable. Revise la configuracion del role, los directorios en la instancia, y el link o servidor de descarga, y vuelva a intentarlo."
 
 #NOTA: todos los operadores de Ansible como "is", "not", "in", "or", "and" hay que ponerlos siempre en minuscula o Ansible mostrara un error muy poco descriptivo y costara darse cuenta que era eso.
+#NOTA2: el parametro "--extra-vars" solo recibe strings, por eso si queremos recibir un boolean desde ese parametro tenemos que aplicar el filter "<nombre_variable>|bool" para usarlo con operadores como el de comparacion.

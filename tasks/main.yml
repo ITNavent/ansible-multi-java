@@ -2,6 +2,25 @@
 
 ---
 
+- set_fact: script_id="{{ansible_date_time.iso8601_basic_short}}-{{100|random}}"
+
+-
+  block:
+    - set_fact: pre_shell_commands_file_name="multi-java-previus-shell-commands~{{script_id}}"
+    - 
+      name: Check if there are previus executable Bash commands and prepare (useful for migrations)
+      connection: local # el modulo 'script' toma un archivo script local asi que tenemos que crear el archivo en nuestro sistema
+      become: no # es importante no ser root para que no pida password de nuestro sistema donde se ejecuta
+      local_action:
+        module: copy
+        dest: "/tmp/{{pre_shell_commands_file_name}}"
+        content: "{{mj_pre_shell_commands}}"
+    -
+      name: Execute previus executable Bash commands
+      script: "/tmp/{{pre_shell_commands_file_name}}"
+      executable: /bin/bash
+  when: mj_pre_shell_commands is defined and mj_pre_shell_commands != ""
+
 - 
   name: Install the package "wget"
   apt:
@@ -27,7 +46,7 @@
         - mj_current_java_version_before_result is defined and mj_current_java_version_before_result.stdout != ""
 
     - 
-      name: Check if Java is not installed and if the specified version is already isntalled
+      name: Check if Java is not installed and if the specified version is already installed
       set_fact: 
         mj_is_java_installed: false
       when: 
@@ -168,4 +187,22 @@
       name: ERROR
       debug: msg="ERROR. Algo falló en la instalación de los paquetes Java. Ninguno quedó configurada ninguna JVM por default. Revise la configuracion del role y vuelva a intentarlo."
 
+-
+  block:
+    - set_fact: post_shell_commands_file_name="multi-java-previus-shell-commands~{{script_id}}"
+    - 
+      name: Check if there are subsequent executable Bash commands and prepare (useful for migrations)
+      connection: local # el modulo 'script' toma un archivo script local asi que tenemos que crear el archivo en nuestro sistema
+      become: no # es importante no ser root para que no pida password de nuestro sistema donde se ejecuta
+      local_action:
+        module: copy
+        dest: "/tmp/{{post_shell_commands_file_name}}"
+        content: "{{mj_post_shell_commands}}"
+    -
+      name: Execute subsequent executable Bash commands
+      script: "/tmp/{{post_shell_commands_file_name}}"
+      executable: /bin/bash
+  when: mj_post_shell_commands is defined and mj_post_shell_commands != ""
+
 #NOTA: todos los operadores de Ansible como "is", "not", "in", "or", "and" hay que ponerlos siempre en minuscula o Ansible mostrara un error muy poco descriptivo y costara darse cuenta que era eso.
+#NOTA2: el parametro "--extra-vars" solo recibe strings, por eso si queremos recibir un boolean desde ese parametro tenemos que aplicar el filter "<nombre_variable>|bool" para usarlo con operadores como el de comparacion.
