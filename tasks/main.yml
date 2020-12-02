@@ -153,6 +153,11 @@
     - mj_install_java | bool == true
 #iteration-end
 
+-
+  name: Set update-alternatives in automatic mode (priority based)
+  become: true
+  command: "update-alternatives --auto java"
+
 - 
   block:
     -
