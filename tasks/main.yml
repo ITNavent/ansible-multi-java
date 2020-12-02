@@ -39,7 +39,7 @@
     - 
       debug: msg="No se detecto ningun version de Java instalada en este sistema."
       when: 
-        - mj_is_java_installed == false
+        - mj_is_java_installed | bool == false
 
 -
   block:
@@ -47,32 +47,32 @@
       name: Set if Java will be installed
       set_fact: mj_install_java=true
       when: # instalamos los pakcages solo si la versiond de Java que quedara activa es diferente a la que ya esta activa antes de empezar la instalacion
-        - mj_is_java_installed == false or (mj_is_java_installed == true and mj_current_java_version_before is version(mj_java_packages[0].mj_nexus_java_version,'<>') )
+        - mj_is_java_installed | bool == false or (mj_is_java_installed | bool == true and mj_current_java_version_before is version(mj_java_packages[0].mj_java_version,'<>') )
     - 
       name: Java will be installed
       debug: 
         msg: 
           - "Se determinó que se instalara Java, debido a que no esta instalada o la version instalada es diferente a la que se quiere instalar."
-      when: mj_install_java == true
+      when: mj_install_java | bool == true
     - 
       name: Java won't be installed
       debug: 
         msg:
           - "Se determinó que NO se instalara Java, debido a que la version instalada actualmente es la misma que la que se quiere instalar."
-      when: mj_install_java == false
+      when: mj_install_java | bool == false
     - 
       name: Evaluated Java versions
       debug: 
         msg: 
           - "Current Java version -> {{mj_current_java_version_before | default('<UNDEFINED>')}}"
-          - "New Java version -> {{mj_java_packages[0].mj_nexus_java_version | default('<UNDEFINED>')}}"
+          - "New Java version -> {{mj_java_packages[0].mj_java_version | default('<UNDEFINED>')}}"
     -
-      name: Check if forced Java instalation es activated
+      name: Check if forced Java installation es activated
       set_fact: mj_install_java=true
-      when: mj_force_java_installation == true
+      when: mj_force_java_installation | bool == true
     -
       debug: msg="INSTALACION FORZOZA ACTIVADA. ¡Se ignoraran los criterios anteriores!"
-      when: mj_force_java_installation == true
+      when: mj_force_java_installation | bool == true
 
 -
   block:
@@ -117,8 +117,8 @@
   command: "update-alternatives --remove-all java"
   ignore_errors: true # si no hay ninguna version de java instalada devuelve error pero no pasa nada
   when: 
-    - mj_reset_all_java_alternatives is defined and mj_reset_all_java_alternatives == true
-    - mj_install_java == true
+    - mj_reset_all_java_alternatives is defined and mj_reset_all_java_alternatives | bool == true
+    - mj_install_java | bool == true
 
 #iteration-start
 # NOTA: actualmente la unica forma en Ansible de iterar sobre varias task es agrupar las task en un archivo yml separado y aplicarle un task include con "with_item".
@@ -131,7 +131,7 @@
     index_var: "mj_java_package_index"
   when: 
     - mj_java_packages is defined
-    - mj_install_java == true
+    - mj_install_java | bool == true
 #iteration-end
 
 - 

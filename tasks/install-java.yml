@@ -7,7 +7,7 @@
   debug: 
     msg: 
       - "mj_java_package_item.mj_java_download_url={{mj_java_package_item.mj_java_download_url|default('<UNDEFINED>')}}"
-      - "mj_java_package_item.mj_nexus_java_version={{mj_java_package_item.mj_nexus_java_version|default('<UNDEFINED>')}}"
+      - "mj_java_package_item.mj_java_version={{mj_java_package_item.mj_java_version|default('<UNDEFINED>')}}"
 
 - 
   name: Create temp Java directory
@@ -15,7 +15,7 @@
 
 - 
   name: Get Java download URL for Nexus # download method 1
-  set_fact: mj_java_download_url="{{mj_java_download_nexus_base_url}}/{{mj_java_package_item.mj_nexus_java_version}}/java-{{mj_java_package_item.mj_nexus_java_version}}.{{mj_java_package_item.mj_nexus_java_package_file_ext|default(mj_nexus_java_package_file_ext_default)}}"
+  set_fact: mj_java_download_url="{{mj_java_download_base_url}}/{{mj_java_package_item.mj_java_version}}/java-{{mj_java_package_item.mj_java_version}}.{{mj_java_package_item.mj_java_package_file_ext|default(mj_java_package_file_ext_default)}}"
   when: 
     - mj_java_package_item.mj_java_download_url is undefined
 
@@ -27,8 +27,7 @@
 
 - 
   name: Show Java download URL
-  debug: 
-    msg: "{{mj_java_download_url}}"
+  debug: msg="{{mj_java_download_url}}"
 
 - 
   name: Download Java package
@@ -42,8 +41,7 @@
 
 - 
   name: Show Java package file path
-  debug: 
-    msg: "{{java_package_file_path}}"
+  debug: msg="{{java_package_file_path}}"
 
 - 
   name: Set Java directory
@@ -51,8 +49,7 @@
 
 - 
   name: Show Java directory
-  debug: 
-    msg: "{{java_dir}}"
+  debug: msg="{{java_dir}}"
 
 - 
   name: "Clean Java directory"
@@ -61,7 +58,7 @@
     path: "{{java_dir}}"
     state: absent
   when: 
-    - mj_java_package_item.mj_clean_java_dir is defined and mj_java_package_item.mj_clean_java_dir == true or (mj_java_package_item.mj_clean_java_dir is defined and mj_clean_java_dir_default == true)
+    - mj_java_package_item.mj_clean_java_dir is defined and mj_java_package_item.mj_clean_java_dir | bool == true or (mj_java_package_item.mj_clean_java_dir is defined and mj_clean_java_dir_default | bool == true)
 
 - 
   name: Create Java directory
@@ -83,8 +80,7 @@
 
 - 
   name: Show Java directory symlink path
-  debug: 
-    msg: "{{java_dir_symlink}}"
+  debug: msg="{{java_dir_symlink}}"
 
 - 
   name: Create Java directory symlink (for easier update)
@@ -101,13 +97,21 @@
     dest: "{{java_dir}}"
     extra_opts: [--strip-components=1] # esto es para extraer el paquete sin 1er directorio raiz (el 1er dir de los paquetes Java suele tener un nombre impredecible diferente al nombre dle archivo)
 
+-
+  name: Set Java binary absolute path
+  set_fact: java_binary_absolute_path="{{ java_dir_symlink }}/{{ mj_java_package_item.mj_package_binary_relative_subpath | default(mj_package_binary_relative_subpath_default) }}"
+
+-
+  name: Show Java binary absolute path
+  debug: msg="{{java_binary_absolute_path}}"
+
 - 
   name: Remove from alternatives the old installed Java with this path
   become: true
-  command: "update-alternatives --remove java {{java_dir_symlink}}/jre/bin/java"
+  command: "update-alternatives --remove java {{java_binary_absolute_path}}"
   ignore_errors: true # si no hay ninguna version de java instalada devuelve error pero no pasa nada
   when: 
-    - mj_java_package_item.mj_clean_java_alternative is defined and mj_java_package_item.mj_clean_java_alternative == true or (mj_java_package_item.mj_clean_java_alternative is undefined and mj_clean_java_alternative_default == true) # default
+    - mj_java_package_item.mj_clean_java_alternative is defined and mj_java_package_item.mj_clean_java_alternative | bool == true or (mj_java_package_item.mj_clean_java_alternative is undefined and mj_clean_java_alternative_default | bool == true) # default
 
 - 
   name: Add to alternatives the new installed Java
@@ -115,40 +119,38 @@
   alternatives:
     name: java
     link: /usr/bin/java
-    path: "{{java_dir_symlink}}/jre/bin/java"
+    path: "{{java_binary_absolute_path}}"
     priority: "{{mj_alternatives_decreasing_start_priority - mj_java_package_index}}"
 
 -
-  name: Java installation check
   block:
     - 
-      command: "{{java_dir_symlink}}/jre/bin/java -version"
+      name: Get installed Java version
+      command: "{{java_binary_absolute_path}} -version"
       register: check_java_installation_result
     -
-      debug:
-        msg: "Se instalaron correctamente los archivos de Java {{mj_java_package_item.mj_nexus_java_version}}."
+      debug: msg="Se instalaron correctamente los archivos de Java {{mj_java_package_item.mj_java_version}}."
   rescue:
     - 
-      debug:
-        msg: "Error. Fallo algo al intentar instalar Java {{mj_java_package_item.mj_nexus_java_version}}. Revise la configuracion del role, los directorios en la instancia, y el link o servidor de descarga, y vuelva a intentarlo."
+      name: ERROR
+      debug: msg="Error. Fallo algo al intentar instalar Java {{mj_java_package_item.mj_java_version}}. Revise la configuracion del role, los directorios en la instancia, y el link o servidor de descarga, y vuelva a intentarlo."
 
 -
-  name: Java alternative configuration check
   block:
     - 
+      name: Get information about the installed Java alternatives
       command: "update-alternatives --list java"
       register: check_java_alternative_configuration_result
     -
-      debug:
-        msg: "Se configuro correctamente Java {{mj_java_package_item.mj_nexus_java_version}} como una alternative usable." 
-      when: java_dir_symlink~'/jre/bin/java' in check_java_alternative_configuration_result.stdout
+      debug: msg="Se configuro correctamente Java {{mj_java_package_item.mj_java_version}} como una alternative usable." 
+      when: java_binary_absolute_path in check_java_alternative_configuration_result.stdout
     -
-      debug:
-        msg: "Error. Fallo algo al intentar configurar Java {{mj_java_package_item.mj_nexus_java_version}} como un alternative usable. Revise la configuracion del role, los directorios en la instancia, y el link o servidor de descarga, y vuelva a intentarlo."
-      when: java_dir_symlink~'/jre/bin/java' not in check_java_alternative_configuration_result.stdout
+      name: ERROR
+      debug: msg="Error. Fallo algo al intentar configurar Java {{mj_java_package_item.mj_java_version}} como un alternative usable. Revise la configuracion del role, los directorios en la instancia, y el link o servidor de descarga, y vuelva a intentarlo."
+      when: java_binary_absolute_path not in check_java_alternative_configuration_result.stdout
   rescue:
     - 
-      debug:
-        msg: "Error. Fallo algo al intentar configurar Java {{mj_java_package_item.mj_nexus_java_version}} como un alternative usable. Revise la configuracion del role, los directorios en la instancia, y el link o servidor de descarga, y vuelva a intentarlo."
+      name: ERROR
+      debug: msg="Error. Fallo algo al intentar configurar Java {{mj_java_package_item.mj_java_version}} como un alternative usable. Revise la configuracion del role, los directorios en la instancia, y el link o servidor de descarga, y vuelva a intentarlo."
 
 #NOTA: todos los operadores de Ansible como "is", "not", "in", "or", "and" hay que ponerlos siempre en minuscula o Ansible mostrara un error muy poco descriptivo y costara darse cuenta que era eso.
